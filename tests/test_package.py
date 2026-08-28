@@ -1,0 +1,188 @@
+"""pbp-pmedian test suite.
+
+Everything is validated the way the research pipeline validated it:
+against FULL ENUMERATION on small instances (the ground truth no solver
+can argue with), plus cross-backend and C-vs-Python equality. These are
+ports of the selftests that guarded the benchmark campaign (kit 106/106,
+Benders 103/103).
+"""
+
+import itertools
+
+import numpy as np
+import pytest
+
+from pbp_pmedian import (BendersPMedian, cost_of, entry_tolerance,
+                         facility_tolerance, labeled_distance, margin2,
+                         reuse_certificate, route, solve, solve_expand,
+                         solve_full, swap_T1, swap_descent,
+                         tolerance_profile, truncated_matrix)
+from pbp_pmedian import backends, core, core_c
+
+
+def enum_all(C, p):
+    subsets = list(itertools.combinations(range(C.shape[0]), p))
+    costs = np.array([cost_of(C, S) for S in subsets])
+    return subsets, costs
+
+
+def enum_tolerance(C, p, i0, j0, S_star):
+    subsets, costs = enum_all(C, p)
+    k_star = subsets.index(tuple(S_star))
+    a = C[i0, j0]
+    others = [i for i in S_star if i != i0]
+    u_star = C[others, j0].min() - a
+    d_min = np.inf
+    for k, S in enumerate(subsets):
+        if k == k_star:
+            continue
+        margin = costs[k] - costs[k_star]
+        if i0 in S:
+            rest = [i for i in S if i != i0]
+            u_S = max(C[rest, j0].min() - a, 0.0)
+        else:
+            u_S = 0.0
+        d_min = min(d_min, margin + u_S)
+    tol = d_min if d_min < u_star - 1e-9 else np.inf
+    return tol, u_star, d_min
+
+
+@pytest.fixture(params=["int", "cont"])
+def instance(request):
+    rng = np.random.default_rng(1330 if request.param == "int" else 1331)
+    C = (rng.integers(1, 21, size=(9, 12)).astype(float)
+         if request.param == "int" else rng.uniform(1, 50, size=(9, 12)))
+    return C, 3
+
+
+def test_expand_equals_enumeration(instance):
+    C, p = instance
+    subsets, costs = enum_all(C, p)
+    f_star = costs.min()
+    v, S, _, st, d = solve_expand(C, p, time_limit=60.0)
+    assert st == 0 and d.get("certified")
+    assert abs(v - f_star) <= 1e-6
+    assert abs(cost_of(C, S) - v) <= 1e-9
+
+
+def test_full_and_exclusion(instance):
+    C, p = instance
+    subsets, costs = enum_all(C, p)
+    v, S, _, st = solve_full(C, p, time_limit=60.0)
+    assert st == 0 and abs(v - costs.min()) <= 1e-6
+    v2, _, _, st = solve_full(C, p, exclude=S, time_limit=60.0)
+    second = min(c for sub, c in zip(subsets, costs) if tuple(sub) != S)
+    assert st == 0 and abs(v2 - second) <= 1e-6
+
+
+def test_benders_equals_enumeration(instance):
+    C, p = instance
+    _, costs = enum_all(C, p)
+    bd = BendersPMedian(C, p)
+    v, S, _, st = bd.solve(time_limit=120.0)
+    assert st == 0 and abs(v - costs.min()) <= 1e-6
+    y = np.zeros(C.shape[0])
+    y[list(S)] = 1.0
+    th = bd.true_thetas(S)
+    for (j, rhs, sites, coefs) in bd.cuts:
+        lhs = th[j] + (coefs @ y[sites] if len(sites) else 0.0)
+        assert lhs >= rhs - 1e-6, "cut invalid at the optimum"
+
+
+def test_entry_tolerance_equals_enumeration(instance):
+    C, p = instance
+    v, S_star, _, st = solve_full(C, p, time_limit=60.0)
+    assert st == 0
+    for j0 in range(C.shape[1]):
+        i0 = min(S_star, key=lambda i: (C[i, j0], i))
+        others = [i for i in S_star if i != i0]
+        if C[others, j0].min() - C[i0, j0] <= 1e-6:
+            continue
+        tol_e, u_e, dmin_e = enum_tolerance(C, p, i0, j0, S_star)
+        A, _ = facility_tolerance(C, p, i0, v, time_limit=60.0)
+        tol_k, dmin_k, _, _, st = entry_tolerance(
+            C, p, S_star, v, i0, j0, A, time_limit=60.0)
+        assert st == 0
+        assert (np.isinf(tol_k) and np.isinf(tol_e)) or \
+            abs(tol_k - tol_e) <= 1e-6
+        if np.isfinite(tol_e):
+            assert abs(dmin_k - dmin_e) <= 1e-6
+        else:   # saturated: certified lower bound in [u*, d_min]
+            assert u_e - 1e-6 <= dmin_k <= dmin_e + 1e-6
+
+
+def test_profile_runs(instance):
+    C, p = instance
+    prof = tolerance_profile(C, p, time_limit=60.0)
+    n = C.shape[1]
+    assert len(prof["client"]) == n
+    fin = np.isfinite(prof["tol"])
+    assert (prof["tol"][fin] >= 0).all()
+
+
+def test_router_and_solve(instance):
+    C, p = instance
+    assert route(C, p) in ("expand", "benders")
+    v, S, _, st, eng = solve(C, p, time_limit=120.0)
+    _, costs = enum_all(C, p)
+    assert st == 0 and abs(v - costs.min()) <= 1e-6
+
+
+def test_screens_and_caching(instance):
+    C, p = instance
+    v, S_star, _, st = solve_full(C, p, time_limit=60.0)
+    m2, _ = margin2(C, p, S_star, v, time_limit=60.0)
+    assert m2 is not None and m2 >= -1e-9
+    rng = np.random.default_rng(7)
+    subsets, _ = enum_all(C, p)
+    for scale in (0.01, 0.2):
+        Cp = C + rng.uniform(-scale, scale, size=C.shape)
+        d = labeled_distance(C, Cp)
+        if reuse_certificate(d, m2):
+            best = min(cost_of(Cp, S) for S in subsets)
+            assert cost_of(Cp, S_star) <= best + 1e-9
+
+
+def test_truncated_matrix_monotone(instance):
+    C, p = instance
+    prev = None
+    for D in (2, 4, 8):
+        TD = truncated_matrix(C, D)
+        assert (TD <= C + 1e-12).all()
+        if prev is not None:
+            assert (TD >= prev - 1e-12).all()
+        prev = TD
+
+
+def test_c_kernel_matches_python(instance):
+    C, p = instance
+    if not core_c.HAVE_C:
+        pytest.skip("C kernel not built (bash build_pmedian.sh)")
+    rng = np.random.default_rng(4)
+    for _ in range(5):
+        S = sorted(rng.choice(C.shape[0], size=p, replace=False).tolist())
+        assert abs(core_c.cost_of(C, S) - core.cost_of(C, S)) <= 1e-9
+        f = core.cost_of(C, S)
+        t1_py, _ = core.swap_T1(C, S, f)
+        t1_c, _ = core_c.swap_T1(C, S, f)
+        assert abs(t1_py - t1_c) <= 1e-9
+        Spy, fpy, _ = core.swap_descent(C, p, S0=S)
+        Sc, fc, _ = core_c.swap_descent(C, p, S0=S)
+        assert abs(fc - core.cost_of(C, Sc)) <= 1e-9
+        assert fc <= f + 1e-9
+        assert abs(fpy - fc) <= 1e-6
+
+
+@pytest.mark.skipif(not backends.HAVE_HIGHSPY, reason="highspy not installed")
+def test_highs_backend_agrees(instance):
+    from pbp_pmedian import set_backend
+    C, p = instance
+    v_s, _, _, st = solve_full(C, p, time_limit=60.0)
+    set_backend("highs")
+    try:
+        v_h, _, _, st2 = solve_full(C, p, time_limit=60.0)
+        vE, _, _, st3, _ = solve_expand(C, p, time_limit=60.0)
+    finally:
+        set_backend("scipy")
+    assert st == st2 == st3 == 0
+    assert abs(v_s - v_h) <= 1e-6 and abs(v_s - vE) <= 1e-6

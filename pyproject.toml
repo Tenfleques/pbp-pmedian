@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pbp-pmedian"
+version = "0.1.0"
+description = "Exact p-median solving and per-entry cost tolerances via the Hammer-Beresnev (pseudo-Boolean) representation: expand-until-certificate reduced models, two-phase Benders, and a certified tolerance layer"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Tendai Mapungwana Chikake", email = "tendaichikake@phystech.edu"}]
+readme = "README.md"
+keywords = ["p-median", "facility location", "tolerance analysis",
+            "sensitivity analysis", "pseudo-Boolean", "Benders decomposition",
+            "combinatorial optimization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.9",
+]
+
+[project.optional-dependencies]
+highs = ["highspy>=1.7"]
+full = ["tmc-pbp>=0.1.0", "highspy>=1.7"]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["pbp_pmedian*"]
+
+# The C kernel is a local opt-in build (bash build_pmedian.sh) from the sdist,
+# never shipped inside the pure-python wheel: a py3-none-any wheel must not
+# carry a platform binary. core_c falls back to core.py when it is absent.
+[tool.setuptools]
+include-package-data = false

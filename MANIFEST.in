@@ -1,0 +1,5 @@
+include LICENSE
+include build_pmedian.sh
+recursive-include src *.c
+recursive-include tests *.py
+recursive-exclude pbp_pmedian *.dylib *.so
