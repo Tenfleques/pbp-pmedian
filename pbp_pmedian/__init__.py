@@ -20,15 +20,17 @@ from .core import (cost_of, labeled_distance, reuse_certificate,
                    serving_split, swap_T1, swap_descent, truncated_matrix)
 from .hb import hb_polynomial, hb_vector
 from .model import reduced_pmedian_ragged, set_backend, solve_full
+from .pipeline import analyze, format_report
 from .router import gap_estimate, route, solve
 from .solve import solve_expand
 from .tolerance import (entry_tolerance, f2_screen, facility_tolerance,
                         margin2, tolerance_profile)
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "BACKENDS", "DEFAULT_BACKEND", "HAVE_HIGHSPY", "BendersPMedian",
+    "analyze", "format_report",
     "cost_of", "labeled_distance", "reuse_certificate", "serving_split",
     "swap_T1", "swap_descent", "truncated_matrix", "hb_polynomial",
     "hb_vector", "reduced_pmedian_ragged", "set_backend", "solve_full",

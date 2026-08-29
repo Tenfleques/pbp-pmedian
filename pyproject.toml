@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pbp-pmedian"
-version = "0.1.0"
+version = "0.2.0"
 description = "Exact p-median solving and per-entry cost tolerances via the Hammer-Beresnev (pseudo-Boolean) representation: expand-until-certificate reduced models, two-phase Benders, and a certified tolerance layer"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -26,6 +26,9 @@ dependencies = [
     "numpy>=1.21",
     "scipy>=1.9",
 ]
+
+[project.scripts]
+pbp-pmedian = "pbp_pmedian.cli:main"
 
 [project.optional-dependencies]
 highs = ["highspy>=1.7"]

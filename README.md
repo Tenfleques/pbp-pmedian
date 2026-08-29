@@ -48,6 +48,24 @@ prof = tolerance_profile(C, 8, S_star=S, f_star=value)
 # (np.inf where the entry is saturated — provably unbounded)
 ```
 
+One call (or one shell command) for the whole pipeline — gap estimate →
+engine routing → certified solve → tolerance layer:
+
+```python
+from pbp_pmedian import analyze, format_report
+print(format_report(analyze(C, 8, tolerances="exact")))
+```
+
+```bash
+pbp-pmedian costs.csv -p 8                       # free F2 tolerance screen
+pbp-pmedian costs.csv -p 8 --tolerances exact --json report.json
+pbp-pmedian costs.csv -p 8 --engine benders --clients 0,4,17
+```
+
+The matrix file is plain numeric text (comma- or whitespace-separated, rows
+= facilities, columns = clients). The engine router is a post-hoc
+calibration pending out-of-sample confirmation; `--engine` overrides it.
+
 Hammer–Beresnev interop (optional, needs `tmc-pbp`):
 
 ```python
