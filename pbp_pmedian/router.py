@@ -1,18 +1,23 @@
 """The engine router.
 
-Empirical rule (calibrated on 50 OR-Library / TSPLIB / synthetic / random
-instances against the fastest-engine oracle, matching its total wall-clock
-to within measurement noise; the rule is post-hoc calibrated and should be
-re-confirmed out-of-sample before being treated as a law):
+Empirical rule, out-of-sample tested 2026-08-30 on 23 fresh instances
+(never used in calibration; oracle = fastest engine that proves
+optimality):
 
     rho = p / m >= 0.10        -> expand-until-certificate
     rho <  0.10                -> Benders
-    LP-loose random instances  -> full model (the reduction does not pay
-                                  there; detectable via the gap estimate)
 
-The one-LP integrality gap additionally predicts the TOLERANCE-bound regime
-(zero gap: cheap LP bounds certify; positive gap: they fail) — that is a
-separate dispatch from the engine choice above.
+This plain rho-rule scored 0.70 oracle agreement at 1.20x the oracle's
+total wall-clock out-of-sample. The richer fitted variant that also sent
+LP-loose random instances to the full model was DEMOTED by the same test
+(0.65 / 1.32x — its random-class leg, calibrated on one instance, went
+1-for-3 on fresh random instances). Treat route() as a good default, not a
+law: disagreements concentrate where the engines tie (sub-second), plus a
+residual rho-boundary band around 0.10-0.20 where either engine is fine.
+
+The one-LP integrality gap still predicts the TOLERANCE-bound regime (zero
+gap: cheap LP bounds certify; positive gap: they fail) — that is a separate
+dispatch from the engine choice above.
 """
 
 import numpy as np

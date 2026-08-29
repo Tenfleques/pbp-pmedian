@@ -186,3 +186,30 @@ def test_highs_backend_agrees(instance):
         set_backend("scipy")
     assert st == st2 == st3 == 0
     assert abs(v_s - v_h) <= 1e-6 and abs(v_s - vE) <= 1e-6
+
+
+@pytest.mark.skipif(not backends.HAVE_HIGHSPY, reason="needs highspy")
+def test_benders_harvest_equals_enumeration(instance):
+    C, p = instance
+    subsets, costs = enum_all(C, p)
+    b = BendersPMedian(C, p, backend="highs")     # harvest defaults on
+    assert b.harvest
+    f, S, _, st = b.solve(time_limit=120.0)
+    assert st == 0 and abs(f - costs.min()) <= 1e-6
+    # every cut (incumbent-harvested included) valid at the true optimum
+    S_ref = subsets[int(np.argmin(costs))]
+    y = np.zeros(C.shape[0])
+    y[list(S_ref)] = 1.0
+    th = C[list(S_ref), :].min(axis=0)
+    for (j, rhs, sites, coefs) in b.cuts:
+        lhs = th[j] + (coefs @ y[sites] if len(sites) else 0.0)
+        assert lhs >= rhs - 1e-6
+    # de-dup: keys unique across the pool
+    keys = [(j, round(float(rhs), 9), sites.tobytes())
+            for (j, rhs, sites, coefs) in b.cuts]
+    assert len(keys) == len(set(keys))
+    # explicit off-switch reproduces the callback-free result
+    b2 = BendersPMedian(C, p, backend="highs", harvest=False)
+    assert not b2.harvest
+    f2, _, _, st2 = b2.solve(time_limit=120.0)
+    assert st2 == 0 and abs(f2 - f) <= 1e-6

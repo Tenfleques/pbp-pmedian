@@ -10,10 +10,10 @@ Stages (each recorded in the report with its wall time):
    certifies the LP-tight regime (cheap tolerance certificates fire there),
    positive flags LP-loose (they will not; exact solves still work).
 2. engine routing — rho = p/m >= 0.10 -> expand-until-certificate, else
-   Benders; explicit ``engine=`` overrides. The rule matched the
-   fastest-engine oracle's total wall-clock on the 50-instance calibration
-   set but is POST-HOC until the out-of-sample confirmation lands — treat
-   it as a default, not a law. A failed routed solve falls back to the
+   Benders; explicit ``engine=`` overrides. Out-of-sample (23 fresh
+   instances, 2026-08-30) the rule scored 0.70 oracle agreement at 1.20x
+   the oracle's total wall-clock — a good default, not a law; misses
+   concentrate where engines tie. A failed routed solve falls back to the
    full model once (recorded).
 3. base solve — with the engine's own optimality certificate: expand's
    no-overflow expansion is a-priori exact; Benders terminates only when

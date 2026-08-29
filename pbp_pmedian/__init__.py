@@ -26,7 +26,7 @@ from .solve import solve_expand
 from .tolerance import (entry_tolerance, f2_screen, facility_tolerance,
                         margin2, tolerance_profile)
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "BACKENDS", "DEFAULT_BACKEND", "HAVE_HIGHSPY", "BendersPMedian",

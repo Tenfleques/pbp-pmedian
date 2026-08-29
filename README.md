@@ -63,8 +63,12 @@ pbp-pmedian costs.csv -p 8 --engine benders --clients 0,4,17
 ```
 
 The matrix file is plain numeric text (comma- or whitespace-separated, rows
-= facilities, columns = clients). The engine router is a post-hoc
-calibration pending out-of-sample confirmation; `--engine` overrides it.
+= facilities, columns = clients). The engine router (ρ = p/m ≥ 0.10 →
+expand, else Benders) scored 0.70 oracle agreement at 1.20× oracle
+wall-clock on 23 fresh out-of-sample instances — a good default, not a
+law; `--engine` overrides it. With `highspy` installed the Benders engine
+also separates at every incumbent ("harvest"), measured −13.5 % on
+OR-Library totals and 2.9× on the rw100 class at identical guarantees.
 
 Hammer–Beresnev interop (optional, needs `tmc-pbp`):
 

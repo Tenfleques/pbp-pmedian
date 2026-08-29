@@ -20,8 +20,10 @@ except ImportError:
 
 
 def solve_scipy(c, A, lb, ub, lo, hi, integrality, time_limit=300.0,
-                start=None):
+                start=None, callback=None):
     """scipy.optimize.milp path; `start` accepted and ignored."""
+    if callback is not None:
+        raise RuntimeError("incumbent callbacks need the highspy backend")
     t0 = time.perf_counter()
     res = milp(
         c,
@@ -37,8 +39,14 @@ def solve_scipy(c, A, lb, ub, lo, hi, integrality, time_limit=300.0,
 
 
 def solve_highs(c, A, lb, ub, lo, hi, integrality, time_limit=300.0,
-                start=None):
-    """highspy path with optional MIP start."""
+                start=None, callback=None):
+    """highspy path with optional MIP start and optional incumbent callback.
+
+    `callback(x)` is invoked with the raw solution vector at every integer
+    feasible solution the MIP solver reports (kCallbackMipSolution); it must
+    not raise — exceptions are stashed and re-raised after the solve so they
+    never cross the C boundary.
+    """
     if not HAVE_HIGHSPY:
         raise RuntimeError("highspy not installed — pip install pbp-pmedian[highs]")
     t0 = time.perf_counter()
@@ -79,7 +87,22 @@ def solve_highs(c, A, lb, ub, lo, hi, integrality, time_limit=300.0,
             h.setSolution(sol)
         except Exception:
             pass
+    cb_error = []
+    if callback is not None:
+        nv = n
+
+        def _on_incumbent(event):
+            try:
+                x = np.asarray(event.data_out.mip_solution, dtype=float)
+                if x.size >= nv:
+                    callback(x[:nv])
+            except Exception as ex:  # never let an exception cross into C
+                cb_error.append(ex)
+
+        h.cbMipSolution.subscribe(_on_incumbent)
     h.run()
+    if cb_error:
+        raise RuntimeError(f"incumbent callback failed: {cb_error[0]!r}")
     dt = time.perf_counter() - t0
     status = h.getModelStatus()
     if status == highspy.HighsModelStatus.kOptimal:
