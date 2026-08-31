@@ -26,8 +26,60 @@ exact whenever the tolerance is finite, and a certified lower bound in
 import numpy as np
 
 from .core import EPS, serving_split
-from .model import solve_full
+from .model import lp_prices, solve_full
 from .solve import solve_expand
+
+
+def dual_price_screen(C, p, S_star, f_star, lp=None, time_limit=300.0):
+    """Free lower bounds on the closed facilities' forcing-in prices, read
+    off the plain relaxation's reduced costs.
+
+    For a facility i CLOSED at the optimum, its forcing-in price
+    T_i = OPT(C; y_i = 1) - f* (the facility's lower tolerance) satisfies
+
+        T_i  >=  rc_i - g,        g = f* - LP(C)  (the integrality gap),
+
+    because OPT(C; y_i=1) >= LP(C; y_i=1) >= LP(C) + rc_i. When the
+    relaxation is tight (g = 0, ``certified``) the reduced cost itself is a
+    valid lower bound, at zero cost beyond the one LP the pipeline already
+    solves. Calibration on pmed1-10 + synthetics (tolerance paper, the
+    "textbook prices" section): safe 165/165 in the tight regime, Spearman
+    0.97 where rc > 0, median rc/T = 0.68 — a ranker/screen, not a value;
+    about a fifth of finite cases underestimate by more than 10x.
+
+    Two structural silences, by design: OPEN facilities are basic (rc = 0
+    identically — the report never prices losing a facility; use
+    facility_tolerance for that), and the plain relaxation carries no
+    usable ENTRY-level estimate (use the F2 screen / entry_tolerance).
+
+    lp: a model.lp_prices(C, p) result to reuse (no extra solve); solved
+    here if omitted. Returns a dict:
+      facility   (k,) closed-facility indices (ascending)
+      rc         (k,) their reduced costs
+      lower      (k,) gap-corrected lower bounds max(rc - g, 0) on T_i
+      gap_abs    g = max(f* - LP, 0)
+      certified  True iff g <= EPS (then lower == rc, valid as-is)
+      lp_value, informative (count rc > EPS), n_closed, seconds, status
+    """
+    C = np.asarray(C, dtype=float)
+    m = C.shape[0]
+    if lp is None:
+        lp = lp_prices(C, p, time_limit=time_limit)
+    if lp["status"] != 0:
+        return {"facility": None, "rc": None, "lower": None,
+                "gap_abs": None, "certified": False, "lp_value": None,
+                "informative": None, "n_closed": None,
+                "seconds": lp["seconds"], "status": lp["status"]}
+    g = max(float(f_star) - lp["value"], 0.0)
+    closed = np.array(sorted(set(range(m)) - set(S_star)), dtype=int)
+    rc = lp["rc_y"][closed]
+    return {"facility": closed, "rc": rc,
+            "lower": np.maximum(rc - g, 0.0),
+            "gap_abs": g, "certified": bool(g <= EPS),
+            "lp_value": lp["value"],
+            "informative": int((rc > EPS).sum()),
+            "n_closed": int(len(closed)),
+            "seconds": lp["seconds"], "status": 0}
 
 
 def facility_tolerance(C, p, i0, f_star, time_limit=300.0, engine="expand"):

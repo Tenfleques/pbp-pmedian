@@ -19,14 +19,15 @@ from .benders import BendersPMedian
 from .core import (cost_of, labeled_distance, reuse_certificate,
                    serving_split, swap_T1, swap_descent, truncated_matrix)
 from .hb import hb_polynomial, hb_vector
-from .model import reduced_pmedian_ragged, set_backend, solve_full
+from .model import (lp_prices, reduced_pmedian_ragged, set_backend,
+                    solve_full)
 from .pipeline import analyze, format_report
 from .router import gap_estimate, route, solve
 from .solve import solve_expand
-from .tolerance import (entry_tolerance, f2_screen, facility_tolerance,
-                        margin2, tolerance_profile)
+from .tolerance import (dual_price_screen, entry_tolerance, f2_screen,
+                        facility_tolerance, margin2, tolerance_profile)
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     "BACKENDS", "DEFAULT_BACKEND", "HAVE_HIGHSPY", "BendersPMedian",
@@ -34,7 +35,8 @@ __all__ = [
     "cost_of", "labeled_distance", "reuse_certificate", "serving_split",
     "swap_T1", "swap_descent", "truncated_matrix", "hb_polynomial",
     "hb_vector", "reduced_pmedian_ragged", "set_backend", "solve_full",
-    "gap_estimate", "route", "solve", "solve_expand", "entry_tolerance",
+    "gap_estimate", "route", "solve", "solve_expand", "lp_prices",
+    "dual_price_screen", "entry_tolerance",
     "f2_screen", "facility_tolerance", "margin2", "tolerance_profile",
     "__version__",
 ]

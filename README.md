@@ -20,6 +20,14 @@ Given an m×n cost matrix (facilities × clients) and p, the package provides:
   `reuse_certificate` (2·d < margin₂ ⇒ a cached optimum survives a
   perturbation, no solve; the constant 2 is tight), truncation transforms,
   swap descent/bounds.
+- **`dual_price_screen`** (0.2.2) — free lower bounds on every closed
+  facility's forcing-in price, read off the reduced costs of the relaxation
+  the pipeline already solves for its gap estimate (theorem: T ≥ rc − gap;
+  certified as-is when the gap is zero). A ranker/screen, not a value:
+  calibrated Spearman 0.97 where rc > 0, median rc/T = 0.68, with ~20% of
+  cases underestimating by more than 10×. Open facilities and entry-level
+  tolerances are structurally unpriced by it — use `facility_tolerance` /
+  `tolerance_profile` there.
 - A **C kernel** for the solver-free primitives (`bash build_pmedian.sh`),
   mirroring `core.py` function-for-function with automatic fallback.
 

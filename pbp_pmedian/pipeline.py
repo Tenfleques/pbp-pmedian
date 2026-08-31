@@ -8,7 +8,9 @@ Stages (each recorded in the report with its wall time):
 
 1. one-LP gap estimate — (UB - LP)/UB with UB from swap descent; zero
    certifies the LP-tight regime (cheap tolerance certificates fire there),
-   positive flags LP-loose (they will not; exact solves still work).
+   positive flags LP-loose (they will not; exact solves still work). The
+   relaxation is solved once WITH duals (model.lp_prices); its reduced
+   costs feed the free dual-price screen of stage 3b at no extra solve.
 2. engine routing — rho = p/m >= 0.10 -> expand-until-certificate, else
    Benders; explicit ``engine=`` overrides. Out-of-sample (23 fresh
    instances, 2026-08-30) the rule scored 0.70 oracle agreement at 1.20x
@@ -33,9 +35,10 @@ import time
 import numpy as np
 
 from .core import EPS, serving_split
-from .model import solve_full
+from .model import lp_prices, solve_full
 from .router import gap_estimate, route, solve
-from .tolerance import f2_screen, margin2, tolerance_profile
+from .tolerance import (dual_price_screen, f2_screen, margin2,
+                        tolerance_profile)
 
 
 def analyze(C, p, tolerances="screen", engine=None, clients=None,
@@ -57,7 +60,10 @@ def analyze(C, p, tolerances="screen", engine=None, clients=None,
     report = {"m": m, "n": n, "p": p, "rho": p / m}
 
     t0 = time.perf_counter()
-    gap = gap_estimate(C, p, time_limit=time_limit, seed=seed)
+    lp = lp_prices(C, p, time_limit=time_limit)
+    gap = (None if lp["status"] != 0 else
+           gap_estimate(C, p, time_limit=time_limit, seed=seed,
+                        lp_val=lp["value"]))
     report["gap_estimate"] = gap
     report["lp_tight"] = (gap is not None and gap <= 1e-9)
     report["t_gap_s"] = time.perf_counter() - t0
@@ -86,6 +92,14 @@ def analyze(C, p, tolerances="screen", engine=None, clients=None,
         "benders": "Benders master value == true cost (relaxation tight)",
         "full": "MIP solver optimality at zero gap",
     }[eng_used]
+
+    # 3b. dual-price screen — free: reads the reduced costs of the LP the
+    # gap stage already solved (theorem: T_i >= rc_i - gap; certified when
+    # the gap is zero). t_prices_s is the marginal cost AFTER that LP.
+    if lp["status"] == 0:
+        t0 = time.perf_counter()
+        report["dual_prices"] = dual_price_screen(C, p, S, v, lp=lp)
+        report["t_prices_s"] = time.perf_counter() - t0
 
     report["tolerances"] = tolerances
     if tolerances == "none":
@@ -167,6 +181,15 @@ def format_report(report):
     s_txt = (", ".join(map(str, S[:8])) + (", ..." if len(S) > 8 else ""))
     ln.append(f"optimum: f* = {report['f_star']:g}, S* = ({s_txt}) — "
               f"{report['certificate']} [{report['t_base_s']:.1f}s]")
+    dp = report.get("dual_prices")
+    if dp and dp.get("status") == 0:
+        kind = ("certified lower bounds (gap 0)" if dp["certified"] else
+                f"gap-corrected lower bounds (gap {dp['gap_abs']:g}; "
+                "naive reduced costs NOT safe here)")
+        ln.append(f"dual-price screen (free, from the gap LP): "
+                  f"{dp['n_closed']} closed facilities priced — "
+                  f"{dp['informative']} informative (rc>0), {kind} "
+                  f"[{report.get('t_prices_s', 0.0):.3f}s]")
     if report.get("tolerances") == "screen" and "screen_summary" in report:
         s = report["screen_summary"]
         ln.append(f"tolerance screen (free F2 bound): {s['clients']} clients"

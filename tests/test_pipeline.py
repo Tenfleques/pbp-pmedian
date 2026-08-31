@@ -127,3 +127,26 @@ def test_cli_end_to_end(tmp_path, capsys):
     rc = cli_main([str(mat2), "-p", "3", "--engine", "benders",
                    "--tolerances", "screen", "--clients", "0,3,7"])
     assert rc == 0
+
+
+def test_analyze_dual_prices_block():
+    """analyze() carries the free dual-price screen: consistent with a
+    manual lp_prices call, zero extra LP solves (t_prices_s is marginal)."""
+    import numpy as np
+    from pbp_pmedian import analyze, dual_price_screen, format_report, lp_prices
+
+    rng = np.random.default_rng(7)
+    C = rng.uniform(1, 50, size=(12, 15))
+    p = 4
+    rep = analyze(C, p, tolerances="none")
+    assert rep["base_status"] == 0
+    dp = rep["dual_prices"]
+    assert dp["status"] == 0 and dp["n_closed"] == 12 - p
+    manual = dual_price_screen(C, p, rep["S_star"], rep["f_star"],
+                               lp=lp_prices(C, p))
+    assert np.allclose(dp["rc"], manual["rc"], atol=1e-9)
+    assert np.allclose(dp["lower"], manual["lower"], atol=1e-9)
+    assert dp["certified"] == manual["certified"]
+    assert rep["t_prices_s"] < 0.1, "screen must be marginal, not a solve"
+    assert dp["certified"] == rep["lp_tight"] or not dp["certified"]
+    assert "dual-price screen" in format_report(rep)

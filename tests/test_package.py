@@ -213,3 +213,58 @@ def test_benders_harvest_equals_enumeration(instance):
     assert not b2.harvest
     f2, _, _, st2 = b2.solve(time_limit=120.0)
     assert st2 == 0 and abs(f2 - f) <= 1e-6
+
+
+def test_lp_prices_matches_relaxation(instance):
+    """lp_prices solves the same relaxation as solve_full(relax=True) and
+    returns consistent dual information (basic facilities price at 0)."""
+    from pbp_pmedian import lp_prices
+
+    C, p = instance
+    lp = lp_prices(C, p)
+    assert lp["status"] == 0
+    val_ref, y_ref, _, st = solve_full(C, p, relax=True)
+    assert st == 0
+    assert abs(lp["value"] - val_ref) <= 1e-6
+    assert lp["rc_y"].shape == (C.shape[0],)
+    assert (lp["rc_y"] >= 0).all()
+    basic = lp["y"] > 1e-9
+    assert (lp["rc_y"][basic] <= 1e-7).all(), "basic facility priced"
+
+
+def test_dual_price_screen_theorem(instance):
+    """T_i >= rc_i - gap for every closed facility, with T_i from the
+    forced solve and, independently, from full enumeration."""
+    from pbp_pmedian import dual_price_screen
+
+    C, p = instance
+    v, S, _, st = solve_full(C, p)
+    assert st == 0
+    dp = dual_price_screen(C, p, S, v)
+    assert dp["status"] == 0
+    assert dp["n_closed"] == C.shape[0] - p
+    subsets, costs = enum_all(C, p)
+    f_star = costs.min()
+    for i, lower in zip(dp["facility"], dp["lower"]):
+        vf, _, _, stf = solve_full(C, p, force_open=[int(i)])
+        assert stf == 0
+        T = max(vf - v, 0.0)
+        assert T >= lower - 1e-6, f"theorem violated at facility {i}"
+        T_enum = min(c for S_, c in zip(subsets, costs) if i in S_) - f_star
+        assert abs(T - T_enum) <= 1e-6, "forced solve != enumeration"
+        if dp["certified"]:
+            assert dp["rc"][list(dp["facility"]).index(i)] <= T + 1e-6
+
+
+def test_dual_price_screen_open_silence(instance):
+    """Open facilities are basic: rc identically zero (never priced)."""
+    from pbp_pmedian import dual_price_screen, lp_prices
+
+    C, p = instance
+    v, S, _, st = solve_full(C, p)
+    assert st == 0
+    lp = lp_prices(C, p)
+    dp = dual_price_screen(C, p, S, v, lp=lp)
+    assert set(dp["facility"]) == set(range(C.shape[0])) - set(S)
+    if dp["certified"]:
+        assert (lp["rc_y"][list(S)] <= 1e-7).all()

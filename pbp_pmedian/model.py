@@ -11,6 +11,7 @@ import time
 
 import numpy as np
 from scipy import sparse
+from scipy.optimize import linprog
 
 from . import backends
 from .core import EPS
@@ -98,6 +99,61 @@ def solve_full(C, p, exclude=None, force_open=None, time_limit=300.0,
         return float(fun), x[:m], dt, 0
     S = tuple(sorted(np.flatnonzero(x[:m] > 0.5).tolist()))
     return float(fun), S, dt, 0
+
+
+def lp_prices(C, p, time_limit=300.0):
+    """Plain LP relaxation solved WITH dual information (scipy linprog/HiGHS).
+
+    Unlike solve_full(relax=True), which goes through the MILP backend and
+    returns no duals, this solves the identical Balinski relaxation via
+    linprog and returns the sensitivity report: the facility variables'
+    reduced costs and the assignment duals. One call powers both the gap
+    estimate and the dual-price screen (tolerance.dual_price_screen) — the
+    pipeline never solves the relaxation twice.
+
+    Returns a dict:
+      value    LP optimum (None on failure, status != 0)
+      rc_y     (m,) reduced costs of the facility variables y_i, >= 0;
+               identically 0 for basic (open/fractional) facilities
+      v        (n,) assignment-constraint duals
+      mu       dual of the cardinality constraint sum y = p
+      y        (m,) fractional facility solution
+      seconds  wall time of the solve
+      status   0 on success
+    """
+    C = np.asarray(C, dtype=float)
+    m, n = C.shape
+    nx = m * n
+    c_obj = np.concatenate([np.zeros(m), C.ravel()])
+    rows = np.concatenate([np.repeat(np.arange(n), m), np.full(m, n)])
+    cols = np.concatenate(
+        [(m + np.arange(m)[None, :] * n + np.arange(n)[:, None]).ravel(),
+         np.arange(m)])
+    vals = np.ones(n * m + m)
+    A_eq = sparse.coo_matrix((vals, (rows, cols)),
+                             shape=(n + 1, m + nx)).tocsc()
+    b_eq = np.concatenate([np.ones(n), [float(p)]])
+    xi = np.repeat(np.arange(m), n)
+    r_bal = np.arange(nx)
+    rows = np.concatenate([r_bal, r_bal])
+    cols = np.concatenate([m + np.arange(nx), xi])
+    vals = np.concatenate([np.ones(nx), -np.ones(nx)])
+    A_ub = sparse.coo_matrix((vals, (rows, cols)),
+                             shape=(nx, m + nx)).tocsc()
+    t0 = time.perf_counter()
+    res = linprog(c_obj, A_ub=A_ub, b_ub=np.zeros(nx), A_eq=A_eq, b_eq=b_eq,
+                  bounds=(0, 1), method="highs",
+                  options={"time_limit": float(time_limit)})
+    dt = time.perf_counter() - t0
+    if res.status != 0:
+        return {"value": None, "rc_y": None, "v": None, "mu": None,
+                "y": None, "seconds": dt, "status": int(res.status)}
+    return {"value": float(res.fun),
+            "rc_y": np.maximum(res.lower.marginals[:m], 0.0),
+            "v": res.eqlin.marginals[:n].copy(),
+            "mu": float(res.eqlin.marginals[n]),
+            "y": res.x[:m].copy(),
+            "seconds": dt, "status": 0}
 
 
 def reduced_pmedian_ragged(C, depths, p, exclude=None, force_open=None,

@@ -28,13 +28,19 @@ from .model import solve_full
 from .solve import solve_expand
 
 
-def gap_estimate(C, p, time_limit=300.0, seed=0):
+def gap_estimate(C, p, time_limit=300.0, seed=0, lp_val=None):
     """(UB - LP)/UB with UB from swap descent: an UPPER estimate of the
     integrality gap (zero implies zero true gap; positive may be descent
-    slack — refine with a better incumbent if it matters)."""
-    lp, _, _, st = solve_full(C, p, relax=True, time_limit=time_limit)
-    if st != 0:
-        return None
+    slack — refine with a better incumbent if it matters).
+
+    lp_val: a precomputed plain-relaxation value (e.g. from
+    model.lp_prices) to reuse — skips the LP solve entirely."""
+    if lp_val is None:
+        lp, _, _, st = solve_full(C, p, relax=True, time_limit=time_limit)
+        if st != 0:
+            return None
+    else:
+        lp = lp_val
     _, ub, _ = swap_descent(np.asarray(C, dtype=float), p, seed=seed)
     return max(ub - lp, 0.0) / max(ub, 1e-12)
 
