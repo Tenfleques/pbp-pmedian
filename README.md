@@ -20,6 +20,14 @@ Given an m×n cost matrix (facilities × clients) and p, the package provides:
   `reuse_certificate` (2·d < margin₂ ⇒ a cached optimum survives a
   perturbation, no solve; the constant 2 is tight), truncation transforms,
   swap descent/bounds.
+- **`b2_profile_warm`** (0.2.3, needs `[highs]`) — the whole-instance B₂
+  bound profile by warm-started dual simplex: the exclusion relaxation is
+  built once and each serving entry is one `changeColCost` + hot re-solve
+  (consecutive entries differ in a single objective coefficient). Full
+  benchmark profiles 5–11× faster than the same solver cold, ~29 vs ~1,531
+  median simplex iterations per re-solve, identical bounds; note the
+  integrality certificate's firing is path-dependent under degeneracy
+  (sound on any path).
 - **`dual_price_screen`** (0.2.2) — free lower bounds on every closed
   facility's forcing-in price, read off the reduced costs of the relaxation
   the pipeline already solves for its gap estimate (theorem: T ≥ rc − gap;

@@ -268,3 +268,26 @@ def test_dual_price_screen_open_silence(instance):
     assert set(dp["facility"]) == set(range(C.shape[0])) - set(S)
     if dp["certified"]:
         assert (lp["rc_y"][list(S)] <= 1e-7).all()
+
+
+def test_b2_profile_warm(instance):
+    """Warm-started B2 profile: warm == cold rebuild == safe vs enumeration,
+    and the integrality certificate is never wrong."""
+    from pbp_pmedian import b2_profile_warm
+
+    C, p = instance
+    v, S, _, st = solve_full(C, p)
+    assert st == 0
+    warm = b2_profile_warm(C, p, S, v)
+    cold = b2_profile_warm(C, p, S, v, warm=False)
+    assert np.allclose(warm["B2"].astype(float), cold["B2"].astype(float),
+                       atol=1e-6), "warm != cold"
+    for k in range(len(warm["client"])):
+        j0, i0 = int(warm["client"][k]), int(warm["facility"][k])
+        if warm["degenerate"][k]:
+            continue
+        _, _, d_min = enum_tolerance(C, p, i0, j0, S)
+        b2 = float(warm["B2"][k])
+        assert b2 <= d_min + 1e-6, f"B2 overestimates at client {j0}"
+        if warm["cert"][k]:
+            assert abs(b2 - d_min) <= 1e-6, f"certificate wrong at {j0}"

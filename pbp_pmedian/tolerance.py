@@ -23,11 +23,124 @@ exact whenever the tolerance is finite, and a certified lower bound in
 [u*, d_min] on saturated entries (the classification is unaffected).
 """
 
+import time
+
 import numpy as np
 
+from .backends import HAVE_HIGHSPY
 from .core import EPS, serving_split
 from .model import lp_prices, solve_full
 from .solve import solve_expand
+
+
+def b2_profile_warm(C, p, S_star, f_star, clients=None, warm=True,
+                    time_limit=600.0):
+    """The whole-instance B2 profile by a warm-started dual simplex.
+
+    B2(i0, j0) = LP(C~; sum_{i in S*} y_i <= p-1) - f* is the strongest
+    safe lower bound of the ladder (exact on 57.4% of benchmark entries,
+    with a per-entry integrality certificate). Consecutive entries differ
+    in ONE objective coefficient — the perturbed assignment variable's cost
+    rises to its column maximum — so one exclusion LP is built once and
+    each subsequent entry is a changeColCost + hot re-solve from the
+    previous optimal basis (requires highspy). warm=False rebuilds the
+    model per entry: the same-stack cold baseline the speedup is measured
+    against.
+
+    Returns a dict of per-client arrays (client, facility, a, u_star,
+    degenerate, B2, cert, iters, t_s) and scalars (t_build_s, t_total_s).
+    cert: the relaxation returned integral y, so B2 equals d_min exactly
+    (the certificate proposition); iters: simplex iterations per re-solve.
+    """
+    if not HAVE_HIGHSPY:
+        raise RuntimeError("b2_profile_warm needs highspy — "
+                           "pip install pbp-pmedian[highs]")
+    import highspy
+
+    C = np.asarray(C, dtype=float)
+    m, n = C.shape
+    nx = m * n
+    S_sorted = sorted(int(i) for i in S_star)
+
+    def build():
+        from scipy import sparse
+        lp = highspy.HighsLp()
+        lp.num_col_ = m + nx
+        # rows: n assignment eq, 1 cardinality eq, nx Balinski <=0, 1 excl
+        rows = [np.repeat(np.arange(n), m), np.full(m, n)]
+        cols = [(m + np.arange(m)[None, :] * n
+                 + np.arange(n)[:, None]).ravel(), np.arange(m)]
+        vals = [np.ones(n * m), np.ones(m)]
+        r_bal = n + 1 + np.arange(nx)
+        rows += [r_bal, r_bal, np.full(len(S_sorted), n + 1 + nx)]
+        cols += [m + np.arange(nx), np.repeat(np.arange(m), n),
+                 np.array(S_sorted)]
+        vals += [np.ones(nx), -np.ones(nx), np.ones(len(S_sorted))]
+        A = sparse.coo_matrix(
+            (np.concatenate(vals),
+             (np.concatenate(rows), np.concatenate(cols))),
+            shape=(n + 1 + nx + 1, m + nx)).tocsc()
+        lp.num_row_ = A.shape[0]
+        lp.col_cost_ = np.concatenate([np.zeros(m), C.ravel()])
+        lp.col_lower_ = np.zeros(m + nx)
+        lp.col_upper_ = np.ones(m + nx)
+        lp.row_lower_ = np.concatenate(
+            [np.ones(n), [float(p)], np.full(nx, -highspy.kHighsInf),
+             [-highspy.kHighsInf]])
+        lp.row_upper_ = np.concatenate(
+            [np.ones(n), [float(p)], np.zeros(nx), [float(p - 1)]])
+        lp.a_matrix_.format_ = highspy.MatrixFormat.kColwise
+        lp.a_matrix_.start_ = A.indptr
+        lp.a_matrix_.index_ = A.indices
+        lp.a_matrix_.value_ = A.data
+        h = highspy.Highs()
+        h.setOptionValue("output_flag", False)
+        h.setOptionValue("time_limit", float(time_limit))
+        h.passModel(lp)
+        return h
+
+    t0 = time.perf_counter()
+    h = build()
+    t_build = time.perf_counter() - t0
+    out = {k: [] for k in ("client", "facility", "a", "u_star",
+                           "degenerate", "B2", "cert", "iters", "t_s")}
+    prev = None  # (col, original cost) to restore
+    cols_iter = clients if clients is not None else range(n)
+    t_all0 = time.perf_counter()
+    for j0 in cols_iter:
+        i0, _, u_star = serving_split(C, S_star, j0)
+        a = float(C[i0, j0])
+        col = m + int(i0) * n + int(j0)
+        cmax = float(C[:, j0].max())
+        t1 = time.perf_counter()
+        if not warm:
+            h = build()
+        if prev is not None:
+            h.changeColCost(prev[0], prev[1])
+        h.changeColCost(col, cmax)
+        prev = (col, a)
+        h.run()
+        dt = time.perf_counter() - t1
+        if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+            b2, cert, iters = None, False, -1
+        else:
+            b2 = max(h.getInfo().objective_function_value - f_star, 0.0)
+            y = np.array(h.getSolution().col_value[:m])
+            cert = bool(np.abs(y - np.round(y)).max() <= 1e-6)
+            iters = int(h.getInfo().simplex_iteration_count)
+        out["client"].append(int(j0))
+        out["facility"].append(int(i0))
+        out["a"].append(a)
+        out["u_star"].append(float(u_star))
+        out["degenerate"].append(bool(u_star <= EPS))
+        out["B2"].append(b2)
+        out["cert"].append(cert)
+        out["iters"].append(iters)
+        out["t_s"].append(dt)
+    res = {k: np.array(v) for k, v in out.items()}
+    res["t_build_s"] = t_build
+    res["t_total_s"] = time.perf_counter() - t_all0 + t_build
+    return res
 
 
 def dual_price_screen(C, p, S_star, f_star, lp=None, time_limit=300.0):
