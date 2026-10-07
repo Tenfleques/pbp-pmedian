@@ -57,10 +57,12 @@ def main(argv=None):
                                    "columns = clients; CSV or whitespace)")
     ap.add_argument("-p", type=int, required=True,
                     help="number of medians to open")
-    ap.add_argument("--tolerances", choices=("none", "screen", "exact"),
+    ap.add_argument("--tolerances",
+                    choices=("none", "screen", "certified", "exact"),
                     default="screen",
-                    help="tolerance layer: free F2 screen (default), exact "
-                         "branch-split profile, or none")
+                    help="tolerance layer: free F2 screen (default), "
+                         "certified-or-interval profile, exact branch-split "
+                         "profile, or none")
     ap.add_argument("--engine", choices=("auto", "expand", "benders", "full"),
                     default="auto", help="base engine (default: routed)")
     ap.add_argument("--clients", default=None,

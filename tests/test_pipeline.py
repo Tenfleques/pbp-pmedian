@@ -65,6 +65,20 @@ def test_analyze_exact_equals_enumeration(instance):
             assert abs(d_min - d_ref) <= 1e-6
 
 
+def test_certified_mode_does_not_report_an_interval_as_a_number(instance):
+    C, p = instance
+    rep = analyze(C, p, tolerances="certified", engine="full")
+    summary = rep["certified_summary"]
+    assert (summary["certified"] + summary["interval"] + summary["degenerate"]
+            + summary["unsolved"] == summary["entries"])
+    assert "certified or interval" in format_report(rep)
+    for status, tol in zip(rep["status"], rep["tol"]):
+        if status == "interval":
+            assert np.isnan(tol)
+        elif status == "certified":
+            assert np.isfinite(tol) or np.isinf(tol)
+
+
 def test_screen_is_safe_lower_bound(instance):
     C, p = instance
     rep_s = analyze(C, p, tolerances="screen")

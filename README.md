@@ -16,6 +16,13 @@ Given an m×n cost matrix (facilities × clients) and p, the package provides:
   optimal. Computed by the branch split `d_min = min(A, B)` — one certified
   facility solve per open facility plus one level-restricted entry solve per
   client — with saturation detected exactly.
+- **`certified_profile(C, p)`** (0.2.4) — the layer between the free screen
+  and the exact profile. One facility solve per open facility and one
+  exclusion LP per serving entry. An entry is a single number when the LP
+  is integral, when the facility value meets that LP, or when the LP reaches
+  the serving margin. Otherwise it is the interval from the LP bound up to
+  the facility value. The facility value is not returned as the tolerance.
+  `analyze(..., tolerances="certified")` reports the same labels.
 - Screens and certificates: the free `f2_screen`, the caching rule
   `reuse_certificate` (2·d < margin₂ ⇒ a cached optimum survives a
   perturbation, no solve; the constant 2 is tight), truncation transforms,

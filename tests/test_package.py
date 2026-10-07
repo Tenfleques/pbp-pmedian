@@ -111,6 +111,48 @@ def test_entry_tolerance_equals_enumeration(instance):
             assert u_e - 1e-6 <= dmin_k <= dmin_e + 1e-6
 
 
+def test_entry_label_keeps_the_facility_bound_in_the_interval():
+    from pbp_pmedian import entry_label
+    status, tol, lo, hi = entry_label(10.0, 5.0, 2.0, False)
+    assert status == "interval" and np.isnan(tol)
+    assert lo == 2.0 and hi == 5.0
+    status, tol, lo, hi = entry_label(10.0, 5.0, 5.0, False)
+    assert status == "certified" and abs(tol - 5.0) <= 1e-9
+    status, tol, lo, hi = entry_label(10.0, 8.0, 3.0, True)
+    assert status == "certified" and abs(tol - 3.0) <= 1e-9
+    status, tol, lo, hi = entry_label(4.0, 9.0, 4.0, False)
+    assert status == "certified" and np.isinf(tol)
+    status, tol, _, _ = entry_label(0.0, 1.0, 1.0, False)
+    assert status == "degenerate" and np.isinf(tol)
+
+
+def test_certified_profile_matches_enumeration(instance):
+    from pbp_pmedian import certified_profile
+    C, p = instance
+    v, S, _, st = solve_full(C, p, time_limit=60.0)
+    assert st == 0
+    prof = certified_profile(C, p, S_star=S, f_star=v, time_limit=60.0,
+                             a_engine="full")
+    assert len(prof["client"]) == C.shape[1]
+    for j0, i0, status, tol, lo, hi in zip(
+            prof["client"], prof["facility"], prof["status"],
+            prof["tol"], prof["lo"], prof["hi"]):
+        _tol_e, u_e, d_e = enum_tolerance(C, p, int(i0), int(j0), S)
+        if u_e <= 1e-6:
+            assert status == "degenerate" and np.isinf(tol)
+            continue
+        assert status in ("certified", "interval")
+        if status == "certified":
+            if np.isinf(tol):
+                assert d_e >= u_e - 1e-5
+            else:
+                assert abs(float(tol) - d_e) <= 1e-5
+                assert abs(float(tol) - hi) <= 1e-5 or abs(float(tol) - lo) <= 1e-5
+        else:
+            assert np.isnan(tol)
+            assert float(lo) - 1e-5 <= d_e <= float(hi) + 1e-5
+
+
 def test_profile_runs(instance):
     C, p = instance
     prof = tolerance_profile(C, p, time_limit=60.0)

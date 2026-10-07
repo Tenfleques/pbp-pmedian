@@ -25,7 +25,10 @@ Stages (each recorded in the report with its wall time):
 4. tolerance layer — ``tolerances="screen"`` (default): the free certified
    lower bound F2 = min(u*, margin_2) per serving entry from ONE extra
    solve, which either bounds the tolerance from below or certifies it
-   infinite; ``"exact"``: the branch-split profile (facility solves cached,
+   infinite; ``"certified"``: one facility solve per open facility and one
+   exclusion LP per serving entry, returning a number only when that LP
+   proves it and an interval from the LP bound up to the facility value
+   otherwise; ``"exact"``: the branch-split profile (facility solves cached,
    one level-restricted entry solve per client — exact on every entry);
    ``"none"``: skip.
 """
@@ -37,8 +40,8 @@ import numpy as np
 from .core import EPS, serving_split
 from .model import lp_prices, solve_full
 from .router import gap_estimate, route, solve
-from .tolerance import (dual_price_screen, f2_screen, margin2,
-                        tolerance_profile)
+from .tolerance import (certified_profile, dual_price_screen, f2_screen,
+                        margin2, tolerance_profile)
 
 
 def analyze(C, p, tolerances="screen", engine=None, clients=None,
@@ -46,7 +49,7 @@ def analyze(C, p, tolerances="screen", engine=None, clients=None,
     """Run the full pipeline on cost matrix C (m facilities x n clients).
 
     Returns a dict report; see format_report for the human-readable view.
-    tolerances: "none" | "screen" | "exact".
+    tolerances: "none" | "screen" | "certified" | "exact".
     engine: None (routed) | "expand" | "benders" | "full".
     """
     C = np.asarray(C, dtype=float)
@@ -55,7 +58,7 @@ def analyze(C, p, tolerances="screen", engine=None, clients=None,
     m, n = C.shape
     if not 1 <= p < m:
         raise ValueError(f"need 1 <= p < m, got p={p}, m={m}")
-    if tolerances not in ("none", "screen", "exact"):
+    if tolerances not in ("none", "screen", "certified", "exact"):
         raise ValueError(f"unknown tolerances mode {tolerances!r}")
     report = {"m": m, "n": n, "p": p, "rho": p / m}
 
@@ -132,6 +135,20 @@ def analyze(C, p, tolerances="screen", engine=None, clients=None,
             "degenerate": int(report["degenerate"].sum()),
             "finite_lower_bounds": int(np.isfinite(report["f2_lower"]).sum()),
         }
+    elif tolerances == "certified":
+        prof = certified_profile(
+            C, p, S_star=S, f_star=v, clients=clients,
+            time_limit=time_limit,
+            a_engine="full" if not report["lp_tight"] else "expand")
+        report.update({k: prof[k] for k in
+                       ("client", "facility", "u_star", "tol", "lo", "hi", "status")})
+        report["certified_summary"] = {
+            "entries": int(len(prof["status"])),
+            "certified": int(np.sum(prof["status"] == "certified")),
+            "interval": int(np.sum(prof["status"] == "interval")),
+            "degenerate": int(np.sum(prof["status"] == "degenerate")),
+            "unsolved": int(np.sum(np.isin(prof["status"], ("unsolved", "inconsistent")))),
+        }
     else:  # exact
         prof = tolerance_profile(
             C, p, S_star=S, f_star=v, clients=clients,
@@ -197,6 +214,12 @@ def format_report(report):
                   f"{s['certified_saturated']} certified saturated, "
                   f"{s['degenerate']} degenerate (tied optimum) "
                   f"[{report['t_tol_s']:.1f}s]")
+    elif report.get("tolerances") == "certified" and "certified_summary" in report:
+        s = report["certified_summary"]
+        ln.append(f"tolerance profile (certified or interval): {s['entries']} "
+                  f"entries — {s['certified']} certified, {s['interval']} "
+                  f"intervals, {s['degenerate']} degenerate, "
+                  f"{s['unsolved']} unsolved [{report['t_tol_s']:.1f}s]")
     elif report.get("tolerances") == "exact" and "profile_summary" in report:
         s = report["profile_summary"]
         rng_txt = (f" [min {s['tol_min']:g}, median {s['tol_median']:g}]"

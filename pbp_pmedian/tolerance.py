@@ -259,6 +259,127 @@ def f2_screen(u_star, m2):
     return np.inf if b >= u_star - EPS else b
 
 
+def _as_float(x):
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return None if np.isnan(v) else v
+
+
+def entry_label(u_star, A, B2, integral):
+    """Classify one serving entry from its facility value and exclusion LP.
+
+    Returns ``(status, tol, lo, hi)``. ``status`` is ``certified``,
+    ``interval``, ``degenerate``, ``unsolved``, or ``inconsistent``.
+    ``tol`` is a number only for a certified or degenerate entry. An
+    interval has ends ``lo`` = B2 and ``hi`` = A, and ``tol`` is NaN:
+    the facility upper bound is not reported as the tolerance.
+
+    A number is certified when the LP is integral, when the facility
+    value meets the LP, or when the LP reaches the serving margin (then
+    the tolerance is infinite).
+    """
+    u_star = float(u_star)
+    if u_star <= EPS:
+        return "degenerate", np.inf, np.nan, np.nan
+    B2 = _as_float(B2)
+    if B2 is None:
+        return "unsolved", np.nan, np.nan, np.nan
+    A = _as_float(A)
+    if A is not None and B2 > A + 1e-4:
+        return "inconsistent", np.nan, B2, A
+    if B2 >= u_star - EPS:
+        return "certified", np.inf, B2, np.inf
+    if bool(integral) or (A is not None and abs(A - B2) <= EPS):
+        return "certified", B2, B2, B2
+    if A is None:
+        return "unsolved", np.nan, B2, np.nan
+    return "interval", np.nan, B2, A
+
+
+def _exclusion_lp(C, S_star, p, i0, j0, time_limit):
+    """Cold exclusion LP of the entry-deleted matrix. (value, y, status)."""
+    deleted = np.array(C, dtype=float, copy=True)
+    deleted[int(i0), int(j0)] = float(np.max(C[:, int(j0)]))
+    val, y, _seconds, status = solve_full(
+        deleted, p, exclude=S_star, relax=True, time_limit=time_limit)
+    return val, y, status
+
+
+def certified_profile(C, p, S_star=None, f_star=None, clients=None,
+                      time_limit=300.0, a_engine="expand"):
+    """Facility upper bound plus one exclusion LP per serving entry.
+
+    One facility solve is cached per open facility. Each strict serving
+    entry then gets one exclusion LP: the warm profile when highspy is
+    present, otherwise one cold relaxation. The label is ``entry_label``.
+    A certified entry carries one number. Every other solved entry is the
+    interval from the LP bound up to the facility value.
+
+    Returns the same client, facility, u_star, and tol arrays as
+    ``tolerance_profile``, plus lo, hi, and status. ``tol`` is NaN on an
+    interval.
+    """
+    C = np.asarray(C, dtype=float)
+    m, n = C.shape
+    if S_star is None:
+        f_star, S_star, _, st, _ = solve_expand(C, p, time_limit=time_limit)
+        if st != 0:
+            raise RuntimeError("base solve failed within the time limit")
+    elif f_star is None:
+        f_star = float(C[list(S_star), :].min(axis=0).sum())
+    f_star = float(f_star)
+    cols = range(n) if clients is None else clients
+    rows = []
+    for j0 in cols:
+        i0, _a, u_star = serving_split(C, S_star, j0)
+        rows.append((int(j0), int(i0), float(u_star)))
+
+    cache = {}
+    for _j0, i0, u_star in rows:
+        if u_star <= EPS or i0 in cache:
+            continue
+        cache[i0] = facility_tolerance(
+            C, p, i0, f_star, time_limit=time_limit, engine=a_engine)[0]
+
+    strict = [(j0, i0) for j0, i0, u_star in rows if u_star > EPS]
+    b2_of = {}
+    integral_of = {}
+    if strict and HAVE_HIGHSPY:
+        warm = b2_profile_warm(
+            C, p, S_star, f_star, clients=[j0 for j0, _i0 in strict],
+            warm=True, time_limit=time_limit)
+        for j0, b2, cert in zip(warm["client"], warm["B2"], warm["cert"]):
+            b2_of[int(j0)] = _as_float(b2)
+            integral_of[int(j0)] = bool(cert)
+    else:
+        for j0, i0 in strict:
+            val, y, status = _exclusion_lp(C, S_star, p, i0, j0, time_limit)
+            if status != 0 or val is None or y is None:
+                b2_of[j0] = None
+                integral_of[j0] = False
+                continue
+            b2_of[j0] = max(float(val) - f_star, 0.0)
+            integral_of[j0] = bool(np.max(np.abs(y - np.round(y))) <= EPS)
+
+    out = {k: [] for k in ("client", "facility", "u_star", "tol", "lo", "hi", "status")}
+    for j0, i0, u_star in rows:
+        status, tol, lo, hi = entry_label(
+            u_star, cache.get(i0), b2_of.get(j0), integral_of.get(j0, False))
+        out["client"].append(j0)
+        out["facility"].append(i0)
+        out["u_star"].append(u_star)
+        out["tol"].append(tol)
+        out["lo"].append(lo)
+        out["hi"].append(hi)
+        out["status"].append(status)
+    return {"f_star": f_star, "S_star": tuple(S_star),
+            **{k: np.array(v) for k, v in out.items()}}
+
+
 def tolerance_profile(C, p, S_star=None, f_star=None, clients=None,
                       time_limit=300.0, a_engine="expand"):
     """Exact upper-tolerance profile over serving entries.

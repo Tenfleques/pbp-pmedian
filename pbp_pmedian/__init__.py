@@ -24,11 +24,11 @@ from .model import (lp_prices, reduced_pmedian_ragged, set_backend,
 from .pipeline import analyze, format_report
 from .router import gap_estimate, route, solve
 from .solve import solve_expand
-from .tolerance import (b2_profile_warm, dual_price_screen, entry_tolerance,
-                        f2_screen, facility_tolerance, margin2,
-                        tolerance_profile)
+from .tolerance import (b2_profile_warm, certified_profile, dual_price_screen,
+                        entry_label, entry_tolerance, f2_screen,
+                        facility_tolerance, margin2, tolerance_profile)
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 
 __all__ = [
     "BACKENDS", "DEFAULT_BACKEND", "HAVE_HIGHSPY", "BendersPMedian",
@@ -37,7 +37,8 @@ __all__ = [
     "swap_T1", "swap_descent", "truncated_matrix", "hb_polynomial",
     "hb_vector", "reduced_pmedian_ragged", "set_backend", "solve_full",
     "gap_estimate", "route", "solve", "solve_expand", "lp_prices",
-    "dual_price_screen", "b2_profile_warm", "entry_tolerance",
-    "f2_screen", "facility_tolerance", "margin2", "tolerance_profile",
+    "dual_price_screen", "b2_profile_warm", "certified_profile", "entry_label",
+    "entry_tolerance", "f2_screen", "facility_tolerance", "margin2",
+    "tolerance_profile",
     "__version__",
 ]
